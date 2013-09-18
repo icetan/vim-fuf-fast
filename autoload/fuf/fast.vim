@@ -76,9 +76,9 @@ function s:getOSFind(dir, exclude)
       return 'find ' . a:dir
     else
       if s:OS ==# 'mac'
-        return 'find -E ' . a:dir . ' ! -regex "(' . a:exclude . ').*"'
+        return 'find -E ' . a:dir . ' ! -regex ".*(' . a:exclude . ').*"'
       elseif s:OS ==# 'linux'
-        return 'find ' . a:dir . ' -regextype posix-extended ! -regex "(' . a:exclude . ').*"'
+        return 'find ' . a:dir . ' -regextype posix-extended ! -regex ".*(' . a:exclude . ').*"'
       endif
     endif
   "elseif s:OS =~ 'win'
