@@ -1,0 +1,1 @@
+call fuf#addMode('fast')
