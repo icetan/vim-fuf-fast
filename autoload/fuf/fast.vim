@@ -55,23 +55,52 @@ endfunction
 
 let s:MODE_NAME = expand('<sfile>:t:r')
 
+function s:getRunningOS()
+  if has('win32') || has ('win64')
+    return 'win'
+  endif
+  if has('unix')
+    if system('uname')=~'Darwin'
+      return 'mac'
+    else
+      return 'linux'
+    endif
+  endif
+endfunction
+
+let s:OS = s:getRunningOS()
+
+function s:getOSFind(dir, exclude)
+  if has('unix')
+    if empty(a:exclude)
+      return 'find ' . a:dir
+    else
+      if s:OS ==# 'mac'
+        return 'find -E ' . a:dir . ' ! -regex "(' . a:exclude . ').*"'
+      elseif s:OS ==# 'linux'
+        return 'find ' . a:dir . ' -regextype posix-extended ! -regex "(' . a:exclude . ').*"'
+      endif
+    endif
+  "elseif s:OS =~ 'win'
+  "  return 'dir ' . a:dir
+  endif
+  echoerr 'No find command for OS.'
+  throw
+endfunction
+
 " returns list of paths.
 function s:find(expr, exclude)
   let exp = substitute(a:expr, '\', '/', 'g')
-  if exp == ''
+  if empty(exp)
     let exp = '*'
-  elseif exp != '/'
+  elseif exp !=# '/'
     let exp = '"' . substitute(exp, '/*$', '', 'g') . '"'
   endif
-  let cmd_ = 'find ' . exp
-  " TODO: exclude Regexp
-  "if !empty(a:exclude)
-  "  let cmd_ = cmd_ . ' ! -regex "' . a:exclude . '"'
-  "endif
-  "echom cmd_
+  let cmd_ = s:getOSFind(exp, a:exclude)
+  echom cmd_
   let res = system(cmd_)
   if v:shell_error
-    echoerr 'Shell error on find'
+    echoerr 'Shell error when executing find.'
     return []
   endif
   return split(res, '\n')
@@ -81,12 +110,13 @@ endfunction
 function s:enumExpandedDirsEntries(dir, exclude)
   let entries = s:find(a:dir, a:exclude)
   " removes "*/." and "*/.."
-  call filter(entries, 'v:val !~ ''\v(^|[/\\])\.\.?$''')
+  " XXX: do we need this?
+  "call filter(entries, 'v:val !~ ''\v(^|[/\\])\.\.?$''')
   call map(entries, 'fuf#makePathItem(v:val, "", 1)')
   " TODO: exclude in fast command
-  if len(a:exclude)
-    call filter(entries, 'v:val.word !~ a:exclude')
-  endif
+  "if len(a:exclude)
+  "  call filter(entries, 'v:val.word !~ a:exclude')
+  "endif
   return entries
 endfunction
 
