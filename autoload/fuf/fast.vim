@@ -15,6 +15,12 @@ endif
 
 " }}}1
 "=============================================================================
+" GLOBAL VARIABLES {{{1
+
+call l9#defineVariableDefault('g:fuf_fast_use_cache', 1)
+
+" }}}1
+"=============================================================================
 " GLOBAL FUNCTIONS {{{1
 
 "
@@ -34,7 +40,8 @@ endfunction
 
 "
 function fuf#fast#renewCache()
-  "let s:cache = {}
+  let s:cacheTime = {}
+  let s:cache = {}
 endfunction
 
 "
@@ -81,11 +88,34 @@ function s:getOSFind(dir, exclude)
         return 'find ' . a:dir . ' -regextype posix-extended ! -regex ".*(' . a:exclude . ').*"'
       endif
     endif
-  "elseif s:OS =~ 'win'
+  "elseif s:OS ==# 'win'
   "  return 'dir ' . a:dir
   endif
-  echoerr 'No find command for OS.'
-  throw
+  return ''
+endfunction
+
+" Get recursive last change times on directories.
+function s:rstat(dir, exclude)
+  let dir = empty(a:dir) ? '.' : a:dir
+  let cmd_ = s:getOSFind(dir, a:exclude) . ' -type d -maxdepth 3 -print0'
+  if has('unix')
+    if s:OS ==# 'mac'
+      let cmd_ .= " | xargs -0 stat -f %c"
+    elseif s:OS ==# 'linux'
+      let cmd_ .= " | xargs -0 stat -c %Z"
+    endif
+  endif
+
+  if empty(cmd_)
+    return ''
+  else
+    let res_ = system(cmd_)
+    if v:shell_error
+      echoerr 'Shell error when executing stat.'
+    endif
+    return res_
+  endif
+  return ''
 endfunction
 
 " returns list of paths.
@@ -96,47 +126,59 @@ function s:find(expr, exclude)
   elseif exp !=# '/'
     let exp = '"' . substitute(exp, '/*$', '', 'g') . '"'
   endif
-  let cmd_ = s:getOSFind(exp, a:exclude)
-  echom cmd_
-  let res = system(cmd_)
-  if v:shell_error
-    echoerr 'Shell error when executing find.'
-    return []
+  let findCmd = s:getOSFind(exp, a:exclude)
+  if empty(findCmd)
+    " Fallback to internal glob function.
+    let entries = fuf#glob(expr)
+    if !empty(a:exclude)
+      call filter(entries, 'v:val !~ a:exclude')
+    endif
+    return entries
+  else
+    echom findCmd
+    let res = system(findCmd)
+    if v:shell_error
+      echoerr 'Shell error when executing find.'
+      return []
+    endif
+    return split(res, '\n')
   endif
-  return split(res, '\n')
 endfunction
 
 "
 function s:enumExpandedDirsEntries(dir, exclude)
   let entries = s:find(a:dir, a:exclude)
   " removes "*/." and "*/.."
-  " XXX: do we need this?
-  "call filter(entries, 'v:val !~ ''\v(^|[/\\])\.\.?$''')
+  call filter(entries, 'v:val !~ ''\v(^|[/\\])\.\.?$''')
   call map(entries, 'fuf#makePathItem(v:val, "", 1)')
-  " TODO: exclude in fast command
-  "if len(a:exclude)
-  "  call filter(entries, 'v:val.word !~ a:exclude')
-  "endif
   return entries
 endfunction
 
+
 "
 function s:enumItems(dir)
-
-  " No cache
-  let tmp = s:enumExpandedDirsEntries(a:dir, g:fuf_file_exclude)
-  call fuf#mapToSetSerialIndex(tmp, 1)
-  call fuf#mapToSetAbbrWithSnippedWordAsPath(tmp)
-  return tmp
-
-  " With cache
-  "let key = join([getcwd(), g:fuf_ignoreCase, g:fuf_file_exclude, a:dir], "\n")
-  "if !exists('s:cache[key]')
-  "  let s:cache[key] = s:enumExpandedDirsEntries(a:dir, g:fuf_file_exclude)
-  "  call fuf#mapToSetSerialIndex(s:cache[key], 1)
-  "  call fuf#mapToSetAbbrWithSnippedWordAsPath(s:cache[key])
-  "endif
-  "return s:cache[key]
+  if g:fuf_fast_use_cache
+    " With cache
+    let key = join([getcwd(), g:fuf_ignoreCase, g:fuf_file_exclude, a:dir], "\n")
+    let time = s:rstat(a:dir, g:fuf_file_exclude)
+    if has_key(s:cacheTime, key) && s:cacheTime[key] !=# time
+      " Reset cache if stat modified times do not match previous cache.
+      unlet s:cache[key]
+    endif
+    if !has_key(s:cache, key)
+      let s:cacheTime[key] = time
+      let s:cache[key] = s:enumExpandedDirsEntries(a:dir, g:fuf_file_exclude)
+      call fuf#mapToSetSerialIndex(s:cache[key], 1)
+      call fuf#mapToSetAbbrWithSnippedWordAsPath(s:cache[key])
+    endif
+    return s:cache[key]
+  else
+    " No cache
+    let tmp = s:enumExpandedDirsEntries(a:dir, g:fuf_file_exclude)
+    call fuf#mapToSetSerialIndex(tmp, 1)
+    call fuf#mapToSetAbbrWithSnippedWordAsPath(tmp)
+    return tmp
+  endif
 endfunction
 
 "
