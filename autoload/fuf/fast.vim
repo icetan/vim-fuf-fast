@@ -77,16 +77,15 @@ endfunction
 
 let s:OS = s:getRunningOS()
 
-function s:getOSFind(dir, exclude)
+function s:getOSFind(exclude)
   if has('unix')
     if empty(a:exclude)
-      return 'find ' . a:dir
-    else
-      if s:OS ==# 'mac'
-        return 'find -E ' . a:dir . ' ! -regex ".*(' . a:exclude . ').*"'
-      elseif s:OS ==# 'linux'
-        return 'find ' . a:dir . ' -regextype posix-extended ! -regex ".*(' . a:exclude . ').*"'
-      endif
+      return 'find {}'
+    endif
+    if s:OS ==# 'mac'
+      return 'find -E {} ! -regex ".*(' . a:exclude . ').*"'
+    elseif s:OS ==# 'linux'
+      return 'find {} -regextype posix-extended ! -regex ".*(' . a:exclude . ').*"'
     endif
   "elseif s:OS ==# 'win'
   "  return 'dir ' . a:dir
@@ -94,47 +93,29 @@ function s:getOSFind(dir, exclude)
   return ''
 endfunction
 
-" Get recursive last change times on directories.
-function s:rstat(dir, exclude)
-  let dir = empty(a:dir) ? '.' : a:dir
-  let cmd_ = s:getOSFind(dir, a:exclude) . ' -type d -maxdepth 3 -print0'
-  if has('unix')
-    if s:OS ==# 'mac'
-      let cmd_ .= " | xargs -0 stat -f %c"
-    elseif s:OS ==# 'linux'
-      let cmd_ .= " | xargs -0 stat -c %Z"
-    endif
-  endif
-
-  if empty(cmd_)
-    return ''
-  else
-    let res_ = system(cmd_)
-    if v:shell_error
-      echoerr 'Shell error when executing stat.'
-    endif
-    return res_
-  endif
-  return ''
-endfunction
-
 " returns list of paths.
 function s:find(expr, exclude)
-  let exp = substitute(a:expr, '\', '/', 'g')
-  if empty(exp)
-    let exp = '*'
-  elseif exp !=# '/'
-    let exp = '"' . substitute(exp, '/*$', '', 'g') . '"'
-  endif
-  let findCmd = s:getOSFind(exp, a:exclude)
+  let findCmd = s:getOSFind(a:exclude)
   if empty(findCmd)
     " Fallback to internal glob function.
-    let entries = fuf#glob(expr)
+    let entries = fuf#glob(a:expr . '*') + fuf#glob(a:expr . '.*')
+    " removes "*/." and "*/.."
+    call filter(entries, 'v:val !~ ''\v(^|[/\\])\.\.?$''')
     if !empty(a:exclude)
       call filter(entries, 'v:val !~ a:exclude')
     endif
     return entries
   else
+    if empty(a:expr)
+      " TODO: clean this workaround for avoiding "./" prefix in result.
+      let findCmd = 'ls -A1 | xargs -L1 -I{} ' . findCmd
+    else
+      let expr = substitute(a:expr, '\', '/', 'g')
+      if expr !=# '/'
+        let expr = '"' . substitute(expr, '/*$', '', 'g') . '"'
+      endif
+      let findCmd = substitute(findCmd, '{}', expr, '')
+    endif
     echom findCmd
     let res = system(findCmd)
     if v:shell_error
@@ -148,26 +129,27 @@ endfunction
 "
 function s:enumExpandedDirsEntries(dir, exclude)
   let entries = s:find(a:dir, a:exclude)
-  " removes "*/." and "*/.."
-  call filter(entries, 'v:val !~ ''\v(^|[/\\])\.\.?$''')
   call map(entries, 'fuf#makePathItem(v:val, "", 1)')
   return entries
 endfunction
-
 
 "
 function s:enumItems(dir)
   if g:fuf_fast_use_cache
     " With cache
+    let dir = empty(a:dir) ? '.' : a:dir
     let key = join([getcwd(), g:fuf_ignoreCase, g:fuf_file_exclude, a:dir], "\n")
-    let time = s:rstat(a:dir, g:fuf_file_exclude)
-    if has_key(s:cacheTime, key) && s:cacheTime[key] !=# time
-      " Reset cache if stat modified times do not match previous cache.
-      unlet s:cache[key]
+    let curtime = system('date +%s')
+    if has_key(s:cacheTime, key)
+      let cmd_ = 'find ' . dir . ' -type d -ctime -' . (curtime-s:cacheTime[key]) . 's'
+      if !empty(system(cmd_))
+        " Reset cache if changes to subdir's have been made since last search.
+        unlet s:cache[key]
+      endif
     endif
     if !has_key(s:cache, key)
-      let s:cacheTime[key] = time
-      let s:cache[key] = s:enumExpandedDirsEntries(a:dir, g:fuf_file_exclude)
+      let s:cacheTime[key] = curtime
+      let s:cache[key] = s:enumExpandedDirsEntries(dir, g:fuf_file_exclude)
       call fuf#mapToSetSerialIndex(s:cache[key], 1)
       call fuf#mapToSetAbbrWithSnippedWordAsPath(s:cache[key])
     endif
