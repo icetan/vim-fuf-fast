@@ -77,26 +77,51 @@ endfunction
 
 let s:OS = s:getRunningOS()
 
-function s:getOSFind(exclude)
+function s:getOSFind(dir, exclude)
+  let cmd_ = ''
   if has('unix')
     if empty(a:exclude)
-      return 'find {}'
+      let cmd_ = 'find {}'
+    else
+      if s:OS ==# 'mac'
+        let cmd_ = 'find -E {} ! -regex ".*(' . a:exclude . ').*"'
+      elseif s:OS ==# 'linux'
+        let cmd_ = 'find {} -regextype posix-extended ! -regex ".*(' . a:exclude . ').*"'
+      endif
     endif
-    if s:OS ==# 'mac'
-      return 'find -E {} ! -regex ".*(' . a:exclude . ').*"'
-    elseif s:OS ==# 'linux'
-      return 'find {} -regextype posix-extended ! -regex ".*(' . a:exclude . ').*"'
+
+    if empty(a:dir)
+      " TODO: clean this workaround for avoiding "./" prefix in result.
+      let cmd_ = 'ls -A1 | xargs -L1 -I{} ' . cmd_
+    else
+      let dir = substitute(a:dir, '\', '/', 'g')
+      if dir !=# '/'
+        let dir = '"' . substitute(dir, '/*$', '', 'g') . '"'
+      endif
+      let cmd_ = substitute(cmd_, '{}', dir, '')
     endif
   "elseif s:OS ==# 'win'
   "  return 'dir ' . a:dir
   endif
-  return ''
+  return cmd_
+endfunction
+
+function s:changed(dir, exclude, since)
+  let dir = empty(a:dir) ? '.' : a:dir
+  if has('unix')
+    let cmd_ = s:getOSFind(dir, a:exclude) . ' -type d -ctime -' . a:since . 's'
+    echom cmd_
+    return !empty(system(cmd_))
+  "elseif s:OS ==# 'win'
+  "  return 'dir ' . a:dir
+  endif
+  return 1
 endfunction
 
 " returns list of paths.
 function s:find(expr, exclude)
-  let findCmd = s:getOSFind(a:exclude)
-  if empty(findCmd)
+  let cmd_ = s:getOSFind(a:expr, a:exclude)
+  if empty(cmd_)
     " Fallback to internal glob function.
     let entries = fuf#glob(a:expr . '*') + fuf#glob(a:expr . '.*')
     " removes "*/." and "*/.."
@@ -106,18 +131,8 @@ function s:find(expr, exclude)
     endif
     return entries
   else
-    if empty(a:expr)
-      " TODO: clean this workaround for avoiding "./" prefix in result.
-      let findCmd = 'ls -A1 | xargs -L1 -I{} ' . findCmd
-    else
-      let expr = substitute(a:expr, '\', '/', 'g')
-      if expr !=# '/'
-        let expr = '"' . substitute(expr, '/*$', '', 'g') . '"'
-      endif
-      let findCmd = substitute(findCmd, '{}', expr, '')
-    endif
-    echom findCmd
-    let res = system(findCmd)
+    echom cmd_
+    let res = system(cmd_)
     if v:shell_error
       echoerr 'Shell error when executing find.'
       return []
@@ -137,19 +152,15 @@ endfunction
 function s:enumItems(dir)
   if g:fuf_fast_use_cache
     " With cache
-    let dir = empty(a:dir) ? '.' : a:dir
     let key = join([getcwd(), g:fuf_ignoreCase, g:fuf_file_exclude, a:dir], "\n")
-    let curtime = system('date +%s')
-    if has_key(s:cacheTime, key)
-      let cmd_ = 'find ' . dir . ' -type d -ctime -' . (curtime-s:cacheTime[key]) . 's'
-      if !empty(system(cmd_))
-        " Reset cache if changes to subdir's have been made since last search.
-        unlet s:cache[key]
-      endif
+    let curtime = strftime('%s')
+    if has_key(s:cacheTime, key) && s:changed(a:dir, '', curtime - s:cacheTime[key])
+      " Reset cache if changes to subdir's have been made since last search.
+      unlet s:cache[key]
     endif
     if !has_key(s:cache, key)
       let s:cacheTime[key] = curtime
-      let s:cache[key] = s:enumExpandedDirsEntries(dir, g:fuf_file_exclude)
+      let s:cache[key] = s:enumExpandedDirsEntries(a:dir, g:fuf_file_exclude)
       call fuf#mapToSetSerialIndex(s:cache[key], 1)
       call fuf#mapToSetAbbrWithSnippedWordAsPath(s:cache[key])
     endif
