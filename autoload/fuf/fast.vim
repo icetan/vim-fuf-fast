@@ -135,6 +135,7 @@ function s:find(expr, exclude)
     endif
     return entries
   else
+    let cmd_ .= ' -type f'
     let res = system(cmd_)
     if v:shell_error
       echoerr 'Shell error when executing find.'
