@@ -56,6 +56,11 @@ function fuf#fast#onInit()
   call fuf#defineLaunchCommand('FufFastWithCurrentBufferDir', s:MODE_NAME, 'expand(''%:~:.'')[:-1-len(expand(''%:~:.:t''))]', [])
 endfunction
 
+"
+function g:fuf_fast_find(dir, exclude)
+  return s:find(a:dir, a:exclude)
+endfunction
+
 " }}}1
 "=============================================================================
 " LOCAL FUNCTIONS/VARIABLES {{{1
@@ -110,7 +115,6 @@ function s:changed(dir, exclude, since)
   let dir = empty(a:dir) ? '.' : a:dir
   if has('unix')
     let cmd_ = s:getOSFind(dir, a:exclude) . ' -type d -ctime -' . a:since . 's'
-    echom cmd_
     return !empty(system(cmd_))
   "elseif s:OS ==# 'win'
   "  return 'dir ' . a:dir
@@ -131,7 +135,6 @@ function s:find(expr, exclude)
     endif
     return entries
   else
-    echom cmd_
     let res = system(cmd_)
     if v:shell_error
       echoerr 'Shell error when executing find.'
