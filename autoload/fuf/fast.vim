@@ -154,6 +154,9 @@ endfunction
 
 "
 function s:enumItems(dir)
+  if exists('fuf#ignore#Update')
+    call fuf#ignore#Update()
+  endif
   if g:fuf_fast_use_cache
     " With cache
     let key = join([getcwd(), g:fuf_ignoreCase, g:fuf_file_exclude, a:dir], "\n")
