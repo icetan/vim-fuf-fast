@@ -57,7 +57,7 @@ function fuf#fast#onInit()
 endfunction
 
 "
-function g:fuf_fast_find(dir, exclude)
+function g:FufFastFind(dir, exclude)
   return s:find(a:dir, a:exclude)
 endfunction
 
